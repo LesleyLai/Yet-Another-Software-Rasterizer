@@ -1,0 +1,3 @@
+[submodule "third-party/beyond-core"]
+	path = third-party/beyond-core
+	url = https://github.com/Beyond-Engine/Core.git

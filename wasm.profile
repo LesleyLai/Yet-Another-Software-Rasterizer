@@ -1,0 +1,12 @@
+include(default)
+[settings]
+os=Emscripten
+arch=wasm
+compiler=clang
+compiler.version=11
+compiler.libcxx=libc++
+[options]
+[build_requires]
+[env]
+CXX=em++
+CC=emcc
