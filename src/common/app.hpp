@@ -10,6 +10,8 @@
 
 #include "image.hpp"
 
+#include <tiny_obj_loader.h>
+
 using Milliseconds = std::chrono::duration<double, std::milli>;
 
 class App {

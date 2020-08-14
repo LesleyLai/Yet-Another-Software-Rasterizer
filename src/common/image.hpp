@@ -8,28 +8,28 @@
 
 class Image {
 public:
-  Image(size_t width, size_t height) noexcept
+  Image(int width, int height) noexcept
       : width_(width), height_(height), data_(width * height)
   {
   }
 
-  auto width() const noexcept -> size_t
+  auto width() const noexcept -> int
   {
     return width_;
   }
 
-  auto height() const noexcept -> size_t
+  auto height() const noexcept -> int
   {
     return height_;
   }
 
-  auto unsafe_at(size_t x, size_t y) const noexcept -> RGB
+  auto unsafe_at(int x, int y) const noexcept -> RGB
   {
     // No bound checking
     return data_[y * width_ + x];
   }
 
-  auto unsafe_at(size_t x, size_t y) noexcept -> RGB&
+  auto unsafe_at(int x, int y) noexcept -> RGB&
   {
     // No bound checking
     return data_[y * width_ + x];
@@ -57,8 +57,8 @@ private:
   //    }
   //  }
 
-  size_t width_;
-  size_t height_;
+  int width_;
+  int height_;
   std::vector<RGB> data_;
 };
 

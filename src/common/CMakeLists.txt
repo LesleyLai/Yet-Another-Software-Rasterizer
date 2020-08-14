@@ -1,10 +1,13 @@
 add_library(common
-        file_util.cpp file_util.hpp app.cpp app.hpp image.hpp color.cpp color.hpp)
+        file_util.cpp file_util.hpp app.cpp app.hpp image.hpp color.cpp color.hpp model.cpp model.hpp)
 target_link_libraries(common
         PUBLIC
+        CONAN_PKG::tinyobjloader
         CONAN_PKG::spdlog
         beyond::core
-        PRIVATE compiler_options)
+        PRIVATE
+        compiler_options
+        )
 
 if (NOT EMSCRIPTEN)
     target_link_libraries(common

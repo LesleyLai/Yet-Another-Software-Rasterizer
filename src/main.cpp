@@ -1,6 +1,6 @@
 #include "common/app.hpp"
 
-int main()
+auto main() -> int
 {
   App app;
 
