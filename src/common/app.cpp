@@ -45,8 +45,8 @@ auto copy_to_screen(const Image& image, SDL_Texture* window_texture) noexcept
   SDL_UnlockTexture(window_texture);
 }
 
-auto line(beyond::IPoint2 p0, beyond::IPoint2 p1, Image& image,
-          const RGB& color) -> void
+[[maybe_unused]] auto line(beyond::IPoint2 p0, beyond::IPoint2 p1, Image& image,
+                           const RGB& color) -> void
 {
   bool steep = false;
   if (std::abs(p0.x - p1.x) <
@@ -80,6 +80,42 @@ constexpr auto point3_to_screen(const beyond::Point3& pt)
                          height - static_cast<int>((pt.y + 1.f) * height / 2)};
 }
 
+beyond::Vec3 barycentric(const std::array<beyond::IVec2, 3>& pts,
+                         beyond::IVec2 p)
+{
+  const auto u = cross(beyond::Vec3(pts[2][0] - pts[0][0],
+                                    pts[1][0] - pts[0][0], pts[0][0] - p[0]),
+                       beyond::Vec3(pts[2][1] - pts[0][1],
+                                    pts[1][1] - pts[0][1], pts[0][1] - p[1]));
+  // Returns negative values for degenerated triangle
+  if (u[2] == 0) {
+    return beyond::Vec3(-1, 1, 1);
+  }
+  return beyond::Vec3(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
+}
+
+void triangle(const std::array<beyond::IVec2, 3>& pts, Image& image, RGB color)
+{
+  const beyond::IVec2 bbox_upper_bound{image.width() - 1, image.height() - 1};
+  beyond::IVec2 bboxmin{bbox_upper_bound};
+  beyond::IVec2 bboxmax{0, 0};
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      bboxmin[j] = std::clamp(bboxmin[j], 0, pts[i][j]);
+      bboxmax[j] = std::clamp(bboxmax[j], pts[i][j], bbox_upper_bound[j]);
+    }
+  }
+
+  for (int x = bboxmin.x; x < bboxmax.x; ++x) {
+    for (int y = bboxmin.y; y < bboxmax.y; ++y) {
+      const beyond::Vec3 bc_screen = barycentric(pts, {x, y});
+      if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0)
+        continue;
+      image.unsafe_at(x, y) = color;
+    }
+  }
+}
+
 } // namespace
 
 App::App() : image_{width, height}
@@ -106,7 +142,6 @@ App::App() : image_{width, height}
     std::exit(1);
   }
 
-  /*
   const char* filename = "assets/model/african_head.obj";
 
   tinyobj::attrib_t attrib;
@@ -118,7 +153,7 @@ App::App() : image_{width, height}
     throw std::runtime_error(err);
   }
 
-  constexpr auto white = RGB(1, 1, 1);
+  const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
   for (const auto& shape : shapes) {
     for (std::size_t i = 0; i < shape.mesh.indices.size(); i += 3) {
       const auto index = shape.mesh.indices[i];
@@ -137,12 +172,16 @@ App::App() : image_{width, height}
       const beyond::IPoint2 pt1_screen = point3_to_screen(pt1);
       const beyond::IPoint2 pt2_screen = point3_to_screen(pt2);
       const beyond::IPoint2 pt3_screen = point3_to_screen(pt3);
-      line(pt1_screen, pt2_screen, image_, white);
-      line(pt2_screen, pt3_screen, image_, white);
-      line(pt3_screen, pt1_screen, image_, white);
+
+      const auto normal =
+          beyond::normalize(beyond::cross(pt2 - pt1, pt3 - pt2));
+      float intensity = beyond::dot(normal, light_dir);
+      if (intensity > 0) {
+        triangle({pt1_screen, pt2_screen, pt3_screen}, image_,
+                 RGB(intensity, intensity, intensity));
+      }
     }
   }
-   */
 }
 
 App::~App()
@@ -161,87 +200,8 @@ auto App::update(const Milliseconds& delta_time) -> void
   render(delta_time);
 }
 
-void triangle(beyond::IVec2 t0, beyond::IVec2 t1, beyond::IVec2 t2,
-              Image& image, RGB border_color, RGB fill_color = RGB{1, 1, 1})
-{
-  if (t0.y > t1.y) {
-    std::swap(t0, t1);
-  }
-  if (t0.y > t2.y) {
-    std::swap(t0, t2);
-  }
-  if (t1.y > t2.y) {
-    std::swap(t1, t2);
-  }
-
-  const int total_height = t2.y - t0.y;
-  for (int y = t0.y; y < t2.y; ++y) {
-    const bool first_half = y < t1.y;
-    const int segment_height = (first_half ? t1.y - t0.y : t2.y - t1.y) + 1;
-    const auto alpha =
-        static_cast<float>(y - t0.y) / static_cast<float>(total_height);
-    const auto beta = (first_half ? static_cast<float>(y - t0.y)
-                                  : static_cast<float>(t2.y - y)) /
-                      static_cast<float>(segment_height);
-
-    auto x0 = static_cast<int>(beyond::lerp(static_cast<float>(t2.x),
-                                            static_cast<float>(t0.x), alpha));
-    auto x1 =
-        first_half
-            ? static_cast<int>(beyond::lerp(static_cast<float>(t1.x),
-                                            static_cast<float>(t0.x), beta))
-            : static_cast<int>(beyond::lerp(static_cast<float>(t1.x),
-                                            static_cast<float>(t2.x), beta));
-    if (x1 < x0) {
-      std::swap(x0, x1);
-    }
-
-    for (int x = x0; x <= x1; ++x) {
-      image.unsafe_at(x, y) = fill_color;
-    }
-  }
-
-  for (int y = t0.y; y < t2.y; ++y) {
-    const bool first_half = y < t1.y;
-    const int segment_height = (first_half ? t1.y - t0.y : t2.y - t1.y) + 1;
-    const auto alpha =
-        static_cast<float>(y - t0.y) / static_cast<float>(total_height);
-    const auto beta = (first_half ? static_cast<float>(y - t0.y)
-                                  : static_cast<float>(t2.y - y)) /
-                      static_cast<float>(segment_height);
-
-    auto x0 = static_cast<int>(beyond::lerp(static_cast<float>(t2.x),
-                                            static_cast<float>(t0.x), alpha));
-    auto x1 =
-        first_half
-            ? static_cast<int>(beyond::lerp(static_cast<float>(t1.x),
-                                            static_cast<float>(t0.x), beta))
-            : static_cast<int>(beyond::lerp(static_cast<float>(t1.x),
-                                            static_cast<float>(t2.x), beta));
-    if (x1 < x0) {
-      std::swap(x0, x1);
-    }
-
-    for (int x = x0; x <= x1; ++x) {
-      image.unsafe_at(x, y) = fill_color;
-    }
-  }
-
-  line(t0, t1, image, border_color);
-  line(t1, t2, image, border_color);
-  line(t2, t0, image, border_color);
-}
-
 auto App::render(const Milliseconds& /*delta_time*/) -> void
 {
-
-  constexpr beyond::IVec2 t0[3] = {{10, 70}, {50, 160}, {70, 80}};
-  constexpr beyond::IVec2 t1[3] = {{180, 50}, {150, 1}, {70, 180}};
-  constexpr beyond::IVec2 t2[3] = {{180, 150}, {120, 160}, {130, 180}};
-  triangle(t0[0], t0[1], t0[2], image_, RGB{1, 0, 0});
-  triangle(t1[0], t1[1], t1[2], image_, RGB{0, 0, 1});
-  triangle(t2[0], t2[1], t2[2], image_, RGB{0, 1, 0});
-
   copy_to_screen(image_, window_texture_);
 
   SDL_RenderClear(renderer_);
