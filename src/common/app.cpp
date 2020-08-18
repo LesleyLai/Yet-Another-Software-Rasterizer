@@ -3,7 +3,6 @@
 #include <spdlog/spdlog.h>
 
 #include <beyond/core/math/function.hpp>
-#include <beyond/core/math/serial.hpp>
 #include <beyond/core/math/vector.hpp>
 #include <beyond/core/utils/bit_cast.hpp>
 
@@ -74,51 +73,67 @@ auto copy_to_screen(const Image& image, SDL_Texture* window_texture) noexcept
   }
 }
 
-constexpr auto point3_to_screen(const beyond::Point3& pt)
+constexpr auto view_to_screen(const beyond::Point3& pt)
 {
-  return beyond::IPoint2{static_cast<int>((pt.x + 1.f) * width / 2),
-                         height - static_cast<int>((pt.y + 1.f) * height / 2)};
+  return beyond::Point3{(pt.x + 1.f) * width / 2,
+                        height - (pt.y + 1.f) * height / 2, pt.z};
 }
 
-beyond::Vec3 barycentric(const std::array<beyond::IVec2, 3>& pts,
-                         beyond::IVec2 p)
+auto barycentric(beyond::IPoint2 a, beyond::IPoint2 b, beyond::IPoint2 c,
+                 beyond::IPoint2 p) -> beyond::Vec3
 {
-  const auto u = cross(beyond::Vec3(pts[2][0] - pts[0][0],
-                                    pts[1][0] - pts[0][0], pts[0][0] - p[0]),
-                       beyond::Vec3(pts[2][1] - pts[0][1],
-                                    pts[1][1] - pts[0][1], pts[0][1] - p[1]));
+  const auto u = cross(beyond::Vec3(c.x - a.x, b.x - a.x, a.x - p.x),
+                       beyond::Vec3(c.y - a.y, b.y - a.y, a.y - p.y));
   // Returns negative values for degenerated triangle
-  if (u[2] == 0) {
+  if (std::abs(u.z) < 1e-2) {
     return beyond::Vec3(-1, 1, 1);
   }
   return beyond::Vec3(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
 
-void triangle(const std::array<beyond::IVec2, 3>& pts, Image& image, RGB color)
+void triangle(const std::array<beyond::Point3, 3>& pts,
+              std::vector<float>& depth_buffer, Image& image, RGB color)
 {
   const beyond::IVec2 bbox_upper_bound{image.width() - 1, image.height() - 1};
   beyond::IVec2 bboxmin{bbox_upper_bound};
   beyond::IVec2 bboxmax{0, 0};
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 2; ++j) {
-      bboxmin[j] = std::clamp(bboxmin[j], 0, pts[i][j]);
-      bboxmax[j] = std::clamp(bboxmax[j], pts[i][j], bbox_upper_bound[j]);
+      bboxmin[j] = std::clamp(bboxmin[j], 0, static_cast<int>(pts[i][j]));
+      bboxmax[j] = std::clamp(bboxmax[j], static_cast<int>(pts[i][j]),
+                              bbox_upper_bound[j]);
     }
   }
 
+  const auto to_int_xy = [](beyond::Point3 pt) {
+    return beyond::IPoint2{static_cast<int>(pt.x), static_cast<int>(pt.y)};
+  };
+
   for (int x = bboxmin.x; x < bboxmax.x; ++x) {
     for (int y = bboxmin.y; y < bboxmax.y; ++y) {
-      const beyond::Vec3 bc_screen = barycentric(pts, {x, y});
+      const auto index = y * image.width() + x;
+
+      const beyond::Vec3 bc_screen = barycentric(
+          to_int_xy(pts[0]), to_int_xy(pts[1]), to_int_xy(pts[2]), {x, y});
       if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0)
         continue;
-      image.unsafe_at(x, y) = color;
+
+      const float z = pts[0].z * bc_screen[0] + pts[1].z * bc_screen[1] +
+                      pts[2].z * bc_screen[2];
+
+      if (depth_buffer[index] < z) {
+        depth_buffer[index] = z;
+        image.unsafe_at(x, y) = color;
+      }
     }
   }
 }
 
 } // namespace
 
-App::App() : image_{width, height}
+App::App()
+    : image_{width, height},
+      depth_buffer_(width * height, -std::numeric_limits<float>::infinity())
 {
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
     spdlog::critical("[SDL2] Unable to initialize SDL: {}", SDL_GetError());
@@ -150,7 +165,7 @@ App::App() : image_{width, height}
   std::string err;
 
   if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename)) {
-    throw std::runtime_error(err);
+    beyond::panic(err);
   }
 
   const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
@@ -169,15 +184,15 @@ App::App() : image_{width, height}
       const auto pt3 = *beyond::bit_cast<beyond::Point3*>(
           &attrib.vertices[3 * index3.vertex_index]);
 
-      const beyond::IPoint2 pt1_screen = point3_to_screen(pt1);
-      const beyond::IPoint2 pt2_screen = point3_to_screen(pt2);
-      const beyond::IPoint2 pt3_screen = point3_to_screen(pt3);
+      const auto pt1_screen = view_to_screen(pt1);
+      const auto pt2_screen = view_to_screen(pt2);
+      const auto pt3_screen = view_to_screen(pt3);
 
       const auto normal =
           beyond::normalize(beyond::cross(pt2 - pt1, pt3 - pt2));
       float intensity = beyond::dot(normal, light_dir);
       if (intensity > 0) {
-        triangle({pt1_screen, pt2_screen, pt3_screen}, image_,
+        triangle({pt1_screen, pt2_screen, pt3_screen}, depth_buffer_, image_,
                  RGB(intensity, intensity, intensity));
       }
     }

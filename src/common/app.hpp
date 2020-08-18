@@ -7,6 +7,7 @@
 
 #include <array>
 #include <chrono>
+#include <vector>
 
 #include "image.hpp"
 
@@ -21,6 +22,7 @@ class App {
   bool should_close_ = false;
 
   Image image_;
+  std::vector<float> depth_buffer_;
 
 public:
   App();

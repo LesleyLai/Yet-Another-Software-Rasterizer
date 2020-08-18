@@ -17,11 +17,15 @@ Checks:          '*,
 -cppcoreguidelines-pro-bounds-pointer-arithmetic,
 -cppcoreguidelines-avoid-magic-numbers,
 -cppcoreguidelines-pro-type-union-access,
+-cppcoreguidelines-pro-bounds-constant-array-index,
 -*-avoid-c-arrays,
+-hicpp-signed-bitwise,
 -fuchsia-*,
 -hicpp-uppercase-literal-suffix,
 -google-runtime-references,
--google-build-using-namespace
+-google-build-using-namespace,
+-google-readability-braces-around-statements,
+-hicpp-braces-around-statements,
 '
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'catch.hpp'
