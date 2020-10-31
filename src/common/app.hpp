@@ -21,6 +21,11 @@ class App {
   SDL_Texture* window_texture_ = nullptr;
   bool should_close_ = false;
 
+  float* diffuse_texture_ = nullptr;
+  int diffuse_texture_width_ = 0;
+  int diffuse_texture_height_ = 0;
+  int diffuse_texture_channels_ = 0;
+
   Image image_;
   std::vector<float> depth_buffer_;
 

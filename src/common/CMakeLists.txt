@@ -2,6 +2,7 @@ add_library(common
         file_util.cpp file_util.hpp app.cpp app.hpp image.hpp color.cpp color.hpp model.cpp model.hpp)
 target_link_libraries(common
         PUBLIC
+        CONAN_PKG::stb
         CONAN_PKG::tinyobjloader
         CONAN_PKG::spdlog
         beyond::core

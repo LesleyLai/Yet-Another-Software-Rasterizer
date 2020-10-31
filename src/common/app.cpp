@@ -1,14 +1,16 @@
 #include "app.hpp"
 
-#include <spdlog/spdlog.h>
-
 #include <beyond/core/math/function.hpp>
 #include <beyond/core/math/vector.hpp>
 #include <beyond/core/utils/bit_cast.hpp>
-
-#include <fmt/format.h>
+#include <beyond/core/utils/panic.hpp>
 
 #include <SDL2/SDL_image.h>
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 constexpr int width = 1200;
 constexpr int height = 800;
@@ -20,7 +22,7 @@ constexpr auto rgb_to_uint32(const RGB& c) noexcept -> uint32_t
   const auto r = static_cast<uint8_t>(c.r * 255.99f);
   const auto g = static_cast<uint8_t>(c.g * 255.99f);
   const auto b = static_cast<uint8_t>(c.b * 255.99f);
-  return r << 16 | g << 8 | b;
+  return r << 16u | g << 8u | b;
 }
 
 auto copy_to_screen(const Image& image, SDL_Texture* window_texture) noexcept
@@ -79,8 +81,9 @@ constexpr auto view_to_screen(const beyond::Point3& pt)
                         height - (pt.y + 1.f) * height / 2, pt.z};
 }
 
-auto barycentric(beyond::IPoint2 a, beyond::IPoint2 b, beyond::IPoint2 c,
-                 beyond::IPoint2 p) -> beyond::Vec3
+[[nodiscard]] auto barycentric(beyond::IPoint2 a, beyond::IPoint2 b,
+                               beyond::IPoint2 c, beyond::IPoint2 p)
+    -> beyond::Vec3
 {
   const auto u = cross(beyond::Vec3(c.x - a.x, b.x - a.x, a.x - p.x),
                        beyond::Vec3(c.y - a.y, b.y - a.y, a.y - p.y));
@@ -91,8 +94,18 @@ auto barycentric(beyond::IPoint2 a, beyond::IPoint2 b, beyond::IPoint2 c,
   return beyond::Vec3(1.f - (u.x + u.y) / u.z, u.y / u.z, u.x / u.z);
 }
 
+[[nodiscard]] auto barycentric_interpolate(beyond::Vec3 coord, float a, float b,
+                                           float c)
+{
+  return coord.x * a + coord.y * b + coord.z * c;
+}
+
 void triangle(const std::array<beyond::Point3, 3>& pts,
-              std::vector<float>& depth_buffer, Image& image, RGB color)
+              const std::array<beyond::Point2, 3>& uvs,
+              std::vector<float>& depth_buffer, Image& image,
+              const float* diffuse_texture, int diffuse_texture_width,
+              int diffuse_texture_height, int diffuse_texture_channels,
+              const RGB color)
 {
   const beyond::IVec2 bbox_upper_bound{image.width() - 1, image.height() - 1};
   beyond::IVec2 bboxmin{bbox_upper_bound};
@@ -118,12 +131,32 @@ void triangle(const std::array<beyond::Point3, 3>& pts,
       if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0)
         continue;
 
-      const float z = pts[0].z * bc_screen[0] + pts[1].z * bc_screen[1] +
-                      pts[2].z * bc_screen[2];
+      const auto u =
+          barycentric_interpolate(bc_screen, uvs[0].x, uvs[1].x, uvs[2].x);
+      const auto v =
+          barycentric_interpolate(bc_screen, uvs[0].y, uvs[1].y, uvs[2].y);
+      const auto z =
+          barycentric_interpolate(bc_screen, pts[0].z, pts[1].z, pts[2].z);
 
       if (depth_buffer[index] < z) {
         depth_buffer[index] = z;
-        image.unsafe_at(x, y) = color;
+        const int texture_x = std::max(u * diffuse_texture_width, 0.f);
+        const int texture_y =
+            diffuse_texture_height - std::max(v * diffuse_texture_height, 0.f);
+        const float* target_pixels =
+            diffuse_texture + (texture_y * diffuse_texture_width + texture_x) *
+                                  diffuse_texture_channels;
+        RGB final_color{
+            color.r * target_pixels[0],
+            color.g * target_pixels[1],
+            color.b * target_pixels[2],
+        };
+
+        // Gamma correction
+        final_color.r = std::pow(final_color.r, 1 / 2.2);
+        final_color.g = std::pow(final_color.g, 1 / 2.2);
+        final_color.b = std::pow(final_color.b, 1 / 2.2);
+        image.unsafe_at(x, y) = final_color;
       }
     }
   }
@@ -157,14 +190,20 @@ App::App()
     std::exit(1);
   }
 
-  const char* filename = "assets/model/african_head.obj";
+  constexpr const char* model_filename = "assets/model/african_head.obj";
+  constexpr const char* diffuse_texture_filename =
+      "assets/textures/african_head_diffuse.tga";
+
+  diffuse_texture_ =
+      stbi_loadf(diffuse_texture_filename, &diffuse_texture_width_,
+                 &diffuse_texture_height_, &diffuse_texture_channels_, 0);
 
   tinyobj::attrib_t attrib;
   std::vector<tinyobj::shape_t> shapes;
   std::vector<tinyobj::material_t> materials;
   std::string err;
 
-  if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, filename)) {
+  if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &err, model_filename)) {
     beyond::panic(err);
   }
 
@@ -175,10 +214,8 @@ App::App()
       const auto index2 = shape.mesh.indices[i + 1];
       const auto index3 = shape.mesh.indices[i + 2];
 
-      const beyond::Point3 pt1{attrib.vertices[3 * index.vertex_index],
-                               attrib.vertices[3 * index.vertex_index + 1],
-                               attrib.vertices[3 * index.vertex_index + 2]};
-
+      const auto pt1 = *beyond::bit_cast<beyond::Point3*>(
+          &attrib.vertices[3 * index.vertex_index]);
       const auto pt2 = *beyond::bit_cast<beyond::Point3*>(
           &attrib.vertices[3 * index2.vertex_index]);
       const auto pt3 = *beyond::bit_cast<beyond::Point3*>(
@@ -188,11 +225,21 @@ App::App()
       const auto pt2_screen = view_to_screen(pt2);
       const auto pt3_screen = view_to_screen(pt3);
 
+      const auto uv1 = *beyond::bit_cast<beyond::Vec2*>(
+          &attrib.texcoords[2 * index.texcoord_index]);
+      const auto uv2 = *beyond::bit_cast<beyond::Vec2*>(
+          &attrib.texcoords[2 * index2.texcoord_index]);
+      const auto uv3 = *beyond::bit_cast<beyond::Vec2*>(
+          &attrib.texcoords[2 * index3.texcoord_index]);
+
       const auto normal =
           beyond::normalize(beyond::cross(pt2 - pt1, pt3 - pt2));
       float intensity = beyond::dot(normal, light_dir);
       if (intensity > 0) {
-        triangle({pt1_screen, pt2_screen, pt3_screen}, depth_buffer_, image_,
+        triangle({pt1_screen, pt2_screen, pt3_screen}, {uv1, uv2, uv3},
+                 depth_buffer_, image_, diffuse_texture_,
+                 diffuse_texture_width_, diffuse_texture_height_,
+                 diffuse_texture_channels_,
                  RGB(intensity, intensity, intensity));
       }
     }
@@ -201,6 +248,7 @@ App::App()
 
 App::~App()
 {
+  stbi_image_free(diffuse_texture_);
 
   SDL_DestroyTexture(window_texture_);
 
