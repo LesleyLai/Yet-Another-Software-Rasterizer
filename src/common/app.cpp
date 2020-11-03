@@ -11,7 +11,6 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
-#define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
 namespace {
@@ -20,19 +19,6 @@ constexpr int width = 1200;
 constexpr int height = 800;
 
 using beyond::float_constants::pi;
-static const auto projection = beyond::perspective(
-    beyond::Radian(pi / 4.f),
-    static_cast<float>(width) / static_cast<float>(height), 0.1f, 10.f);
-
-template <typename T, typename Func>
-constexpr auto generate_array3_with_index(Func&& func)
-{
-  std::array<T, 3> result;
-  for (std::size_t j = 0; j < 3; ++j) {
-    result[j] = func(j);
-  }
-  return result;
-}
 
 constexpr auto rgb_to_uint32(const RGB& c) noexcept -> uint32_t
 {
@@ -92,10 +78,10 @@ auto copy_to_screen(const Image& image, SDL_Texture* window_texture) noexcept
   }
 }
 
-constexpr auto view_to_screen(const beyond::Vec3& pt)
+constexpr auto normalized_to_screen(const beyond::Vec3& pt)
 {
   return beyond::Point3{(pt.x + 1.f) * width / 2,
-                        height - (pt.y + 1.f) * height / 2, pt.z};
+                        height - (pt.y + 1.f) * height / 2, -pt.z};
 }
 
 [[nodiscard]] auto barycentric(beyond::IPoint2 a, beyond::IPoint2 b,
@@ -141,6 +127,10 @@ void triangle(const std::array<beyond::Point3, 3>& pts,
 
   for (int x = bboxmin.x; x < bboxmax.x; ++x) {
     for (int y = bboxmin.y; y < bboxmax.y; ++y) {
+      if (x >= image.width() || x < 0 || y >= image.height() || y < 0) {
+        continue;
+      }
+
       const auto index = y * image.width() + x;
 
       const beyond::Vec3 bc_screen = barycentric(
@@ -224,37 +214,43 @@ App::App()
     beyond::panic(err);
   }
 
+  const auto view =
+      beyond::look_at(beyond::Vec3{2.f, 1.f, 4.f}, beyond::Vec3{0.f, 0.f, 0.f},
+                      beyond::Vec3{0.f, 1.f, 0.f});
+
+  const auto proj = beyond::perspective(
+      beyond::Radian(pi / 3.f),
+      static_cast<float>(width) / static_cast<float>(height), 0.1f, 100.f);
+
   const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
   for (const auto& shape : shapes) {
     for (std::size_t i = 0; i < shape.mesh.indices.size(); i += 3) {
       const std::array indices{shape.mesh.indices[i], shape.mesh.indices[i + 1],
                                shape.mesh.indices[i + 2]};
 
-      const auto object_space =
-          generate_array3_with_index<beyond::Point3>([&](std::size_t j) {
-            return *beyond::bit_cast<beyond::Point3*>(
-                &attrib.vertices[3 * indices[j].vertex_index]);
-          });
+      std::array<beyond::Point3, 3> world_coords;
+      std::array<beyond::Point3, 3> screen_coords;
+      std::array<beyond::Vec2, 3> uvs;
+      for (std::size_t j = 0; j < 3; ++j) {
+        world_coords[j] = *beyond::bit_cast<beyond::Point3*>(
+            &attrib.vertices[3 * indices[j].vertex_index]);
 
-      const auto screen_space = generate_array3_with_index<beyond::Point3>(
-          [&](std::size_t j) { return view_to_screen(object_space[j]); });
-
-      const auto uvs =
-          generate_array3_with_index<beyond::Vec2>([&](std::size_t j) {
-            return *beyond::bit_cast<beyond::Vec2*>(
-                &attrib.texcoords[2 * indices[j].texcoord_index]);
-          });
+        const beyond::Vec4 normalized_coord =
+            proj * view * beyond::Vec4{world_coords[j], 1};
+        screen_coords[j] =
+            normalized_to_screen(normalized_coord.xyz / normalized_coord.w);
+        uvs[j] = *beyond::bit_cast<beyond::Vec2*>(
+            &attrib.texcoords[2 * indices[j].texcoord_index]);
+      }
 
       const auto normal =
-          beyond::normalize(beyond::cross(object_space[1] - object_space[0],
-                                          object_space[2] - object_space[1]));
+          beyond::normalize(beyond::cross(world_coords[1] - world_coords[0],
+                                          world_coords[2] - world_coords[1]));
       float intensity = beyond::dot(normal, light_dir);
-      if (intensity > 0) {
-        triangle(screen_space, uvs, depth_buffer_, image_, diffuse_texture_,
-                 diffuse_texture_width_, diffuse_texture_height_,
-                 diffuse_texture_channels_,
-                 RGB(intensity, intensity, intensity));
-      }
+      intensity = std::min(intensity, 1.f);
+      triangle(screen_coords, uvs, depth_buffer_, image_, diffuse_texture_,
+               diffuse_texture_width_, diffuse_texture_height_,
+               diffuse_texture_channels_, RGB(intensity, intensity, intensity));
     }
   }
 }
