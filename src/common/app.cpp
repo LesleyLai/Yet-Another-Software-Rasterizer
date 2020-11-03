@@ -1,9 +1,11 @@
 #include "app.hpp"
 
-#include <beyond/core/math/function.hpp>
-#include <beyond/core/math/vector.hpp>
-#include <beyond/core/utils/bit_cast.hpp>
-#include <beyond/core/utils/panic.hpp>
+#include <beyond/math/function.hpp>
+#include <beyond/math/point.hpp>
+#include <beyond/math/transform.hpp>
+#include <beyond/math/vector.hpp>
+#include <beyond/utils/bit_cast.hpp>
+#include <beyond/utils/panic.hpp>
 
 #include <SDL2/SDL_image.h>
 #include <fmt/format.h>
@@ -12,10 +14,25 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+namespace {
+
 constexpr int width = 1200;
 constexpr int height = 800;
 
-namespace {
+using beyond::float_constants::pi;
+static const auto projection = beyond::perspective(
+    beyond::Radian(pi / 4.f),
+    static_cast<float>(width) / static_cast<float>(height), 0.1f, 10.f);
+
+template <typename T, typename Func>
+constexpr auto generate_array3_with_index(Func&& func)
+{
+  std::array<T, 3> result;
+  for (std::size_t j = 0; j < 3; ++j) {
+    result[j] = func(j);
+  }
+  return result;
+}
 
 constexpr auto rgb_to_uint32(const RGB& c) noexcept -> uint32_t
 {
@@ -75,7 +92,7 @@ auto copy_to_screen(const Image& image, SDL_Texture* window_texture) noexcept
   }
 }
 
-constexpr auto view_to_screen(const beyond::Point3& pt)
+constexpr auto view_to_screen(const beyond::Vec3& pt)
 {
   return beyond::Point3{(pt.x + 1.f) * width / 2,
                         height - (pt.y + 1.f) * height / 2, pt.z};
@@ -101,7 +118,7 @@ constexpr auto view_to_screen(const beyond::Point3& pt)
 }
 
 void triangle(const std::array<beyond::Point3, 3>& pts,
-              const std::array<beyond::Point2, 3>& uvs,
+              const std::array<beyond::Vec2, 3>& uvs,
               std::vector<float>& depth_buffer, Image& image,
               const float* diffuse_texture, int diffuse_texture_width,
               int diffuse_texture_height, int diffuse_texture_channels,
@@ -210,34 +227,30 @@ App::App()
   const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
   for (const auto& shape : shapes) {
     for (std::size_t i = 0; i < shape.mesh.indices.size(); i += 3) {
-      const auto index = shape.mesh.indices[i];
-      const auto index2 = shape.mesh.indices[i + 1];
-      const auto index3 = shape.mesh.indices[i + 2];
+      const std::array indices{shape.mesh.indices[i], shape.mesh.indices[i + 1],
+                               shape.mesh.indices[i + 2]};
 
-      const auto pt1 = *beyond::bit_cast<beyond::Point3*>(
-          &attrib.vertices[3 * index.vertex_index]);
-      const auto pt2 = *beyond::bit_cast<beyond::Point3*>(
-          &attrib.vertices[3 * index2.vertex_index]);
-      const auto pt3 = *beyond::bit_cast<beyond::Point3*>(
-          &attrib.vertices[3 * index3.vertex_index]);
+      const auto object_space =
+          generate_array3_with_index<beyond::Point3>([&](std::size_t j) {
+            return *beyond::bit_cast<beyond::Point3*>(
+                &attrib.vertices[3 * indices[j].vertex_index]);
+          });
 
-      const auto pt1_screen = view_to_screen(pt1);
-      const auto pt2_screen = view_to_screen(pt2);
-      const auto pt3_screen = view_to_screen(pt3);
+      const auto screen_space = generate_array3_with_index<beyond::Point3>(
+          [&](std::size_t j) { return view_to_screen(object_space[j]); });
 
-      const auto uv1 = *beyond::bit_cast<beyond::Vec2*>(
-          &attrib.texcoords[2 * index.texcoord_index]);
-      const auto uv2 = *beyond::bit_cast<beyond::Vec2*>(
-          &attrib.texcoords[2 * index2.texcoord_index]);
-      const auto uv3 = *beyond::bit_cast<beyond::Vec2*>(
-          &attrib.texcoords[2 * index3.texcoord_index]);
+      const auto uvs =
+          generate_array3_with_index<beyond::Vec2>([&](std::size_t j) {
+            return *beyond::bit_cast<beyond::Vec2*>(
+                &attrib.texcoords[2 * indices[j].texcoord_index]);
+          });
 
       const auto normal =
-          beyond::normalize(beyond::cross(pt2 - pt1, pt3 - pt2));
+          beyond::normalize(beyond::cross(object_space[1] - object_space[0],
+                                          object_space[2] - object_space[1]));
       float intensity = beyond::dot(normal, light_dir);
       if (intensity > 0) {
-        triangle({pt1_screen, pt2_screen, pt3_screen}, {uv1, uv2, uv3},
-                 depth_buffer_, image_, diffuse_texture_,
+        triangle(screen_space, uvs, depth_buffer_, image_, diffuse_texture_,
                  diffuse_texture_width_, diffuse_texture_height_,
                  diffuse_texture_channels_,
                  RGB(intensity, intensity, intensity));
