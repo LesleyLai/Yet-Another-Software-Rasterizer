@@ -19,8 +19,30 @@ struct Vertex {
 
 namespace yasr {
 
-void draw_indexed(Image& image, std::vector<float> depth_buffer,
-                  std::span<Vertex> vertices, std::span<uint32_t> indices);
+#define DEFINE_HANDLE(type)                                                    \
+  struct type {                                                                \
+    std::uint64_t id = 0;                                                      \
+                                                                               \
+    [[nodiscard]] constexpr friend auto operator==(type lhs, type rhs)         \
+        -> bool = default;                                                     \
+  };
+
+struct Device;
+DEFINE_HANDLE(Buffer)
+
+[[nodiscard]] auto create_device() -> Device*;
+void destroy_device(Device* device);
+
+struct BufferDesc {
+  std::span<const std::byte> data;
+};
+[[nodiscard]] auto create_buffer(Device& device, BufferDesc desc) -> Buffer;
+void destroy_buffer(Device& device, Buffer buffer);
+
+void bind_vertex_buffer(Device& device, Buffer vertex_buffer);
+void bind_index_buffer(Device& device, Buffer index_buffer);
+void draw_indexed(Device& device, Image& image,
+                  std::vector<float> depth_buffer);
 
 } // namespace yasr
 

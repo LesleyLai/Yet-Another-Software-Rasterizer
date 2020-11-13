@@ -1,5 +1,5 @@
 ---
-Checks:          '*,
+Checks: '*,
 -clang-analyzer-deadcode.DeadStores,
 -clang-analyzer-alpha.*,
 -readability-static-accessed-through-instance,
@@ -18,6 +18,7 @@ Checks:          '*,
 -cppcoreguidelines-avoid-magic-numbers,
 -cppcoreguidelines-pro-type-union-access,
 -cppcoreguidelines-pro-bounds-constant-array-index,
+-cppcoreguidelines-owning-memory,
 -*-avoid-c-arrays,
 -hicpp-signed-bitwise,
 -fuchsia-*,
@@ -31,14 +32,14 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: 'catch.hpp'
 FormatStyle: 'file'
 CheckOptions:
-  - key:             readability-function-size.LineThreshold
-    value:           '200'
-  - key:             readability-function-size.ParameterThreshold
-    value:           '16'
-  - key:             readability-function-size.StatementThreshold
-    value:           '400'
-  - key:             misc-non-private-member-variables-in-classes.IgnorePublicMemberVariables
-    value:           '1'
-  - key:             cppcoreguidelines-avoid-magic-numbers.IgnoredIntegerValues
+  - key: readability-function-size.LineThreshold
+    value: '200'
+  - key: readability-function-size.ParameterThreshold
+    value: '16'
+  - key: readability-function-size.StatementThreshold
+    value: '400'
+  - key: misc-non-private-member-variables-in-classes.IgnorePublicMemberVariables
+    value: '1'
+  - key: cppcoreguidelines-avoid-magic-numbers.IgnoredIntegerValues
     value: '1;2;3;4;8;'
 ...

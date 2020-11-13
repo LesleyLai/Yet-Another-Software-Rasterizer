@@ -132,9 +132,61 @@ void triangle(const std::array<beyond::Point3, 3>& pts,
 
 namespace yasr {
 
-void draw_indexed(Image& image, std::vector<float> depth_buffer,
-                  std::span<Vertex> vertices, std::span<uint32_t> indices)
+using BufferData = std::vector<std::byte>;
+
+struct Device {
+  std::vector<BufferData> buffers;
+  std::uint64_t current_vertex_buffer_index = 1;
+  std::uint64_t current_index_buffer_index = 2;
+};
+
+auto create_device() -> Device*
 {
+  auto* device = new Device{};
+  device->buffers.emplace_back(); // Reserve 0 as dummy index
+  return device;
+}
+
+void destroy_device(Device* device)
+{
+  delete device;
+}
+
+auto create_buffer(Device& device, BufferDesc desc) -> Buffer
+{
+  device.buffers.emplace_back(desc.data.begin(), desc.data.end());
+  return Buffer{.id = device.buffers.size() - 1};
+}
+
+void destroy_buffer(Device& device, Buffer buffer)
+{
+  device.buffers[buffer.id].clear();
+}
+
+void bind_vertex_buffer(Device& device, Buffer vertex_buffer)
+{
+  device.current_vertex_buffer_index = vertex_buffer.id;
+}
+void bind_index_buffer(Device& device, Buffer index_buffer)
+{
+  device.current_index_buffer_index = index_buffer.id;
+}
+
+void draw_indexed(Device& device, Image& image, std::vector<float> depth_buffer)
+{
+  const auto& vertex_buffer =
+      device.buffers[device.current_vertex_buffer_index];
+  const auto& index_buffer = device.buffers[device.current_index_buffer_index];
+
+  const std::span<const Vertex> vertices{
+      beyond::bit_cast<const Vertex*>(vertex_buffer.data()),
+      beyond::bit_cast<const Vertex*>(vertex_buffer.data() +
+                                      vertex_buffer.size())};
+  const std::span<const uint32_t> indices{
+      beyond::bit_cast<const uint32_t*>(index_buffer.data()),
+      beyond::bit_cast<const uint32_t*>(index_buffer.data() +
+                                        index_buffer.size())};
+
   using beyond::float_constants::pi;
 
   const auto view =

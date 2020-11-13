@@ -101,7 +101,25 @@ App::App()
       indices.push_back(indices.size());
     }
   }
-  yasr::draw_indexed(image_, depth_buffer_, vertices, indices);
+  auto* device = yasr::create_device();
+  auto vertex_buffer = yasr::create_buffer(
+      *device,
+      yasr::BufferDesc{
+          .data = std::span(beyond::bit_cast<std::byte*>(vertices.data()),
+                            vertices.size() * sizeof(Vertex))});
+  auto index_buffer = yasr::create_buffer(
+      *device,
+      yasr::BufferDesc{
+          .data = std::span(beyond::bit_cast<std::byte*>(indices.data()),
+                            indices.size() * sizeof(uint32_t))});
+
+  yasr::bind_vertex_buffer(*device, vertex_buffer);
+  yasr::bind_index_buffer(*device, index_buffer);
+  yasr::draw_indexed(*device, image_, depth_buffer_);
+
+  yasr::destroy_buffer(*device, index_buffer);
+  yasr::destroy_buffer(*device, vertex_buffer);
+  yasr::destroy_device(device);
 }
 
 App::~App()
