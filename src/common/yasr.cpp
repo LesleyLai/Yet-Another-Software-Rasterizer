@@ -134,108 +134,104 @@ namespace yasr {
 
 using BufferData = std::vector<std::byte>;
 
-struct Device {
+struct CPUDevice : Device {
   std::vector<BufferData> buffers;
   std::uint64_t current_vertex_buffer_index = 1;
   std::uint64_t current_index_buffer_index = 2;
+
+  auto create_buffer(BufferDesc desc) -> Buffer override
+  {
+    buffers.emplace_back(desc.data.begin(), desc.data.end());
+    return Buffer{.id = buffers.size() - 1};
+  }
+
+  void destroy_buffer(Buffer buffer) override
+  {
+    buffers[buffer.id].clear();
+  }
+
+  void bind_vertex_buffer(Buffer vertex_buffer) override
+  {
+    BEYOND_ASSERT(!buffers[current_vertex_buffer_index].empty());
+    current_vertex_buffer_index = vertex_buffer.id;
+  }
+  void bind_index_buffer(Buffer index_buffer) override
+  {
+    BEYOND_ASSERT(!buffers[current_index_buffer_index].empty());
+    current_index_buffer_index = index_buffer.id;
+  }
+
+  void draw_indexed(Image& image, std::vector<float> depth_buffer) override
+  {
+    const auto& vertex_buffer = buffers[current_vertex_buffer_index];
+    const auto& index_buffer = buffers[current_index_buffer_index];
+
+    const std::span<const Vertex> vertices{
+        beyond::bit_cast<const Vertex*>(vertex_buffer.data()),
+        beyond::bit_cast<const Vertex*>(vertex_buffer.data() +
+                                        vertex_buffer.size())};
+    const std::span<const uint32_t> indices{
+        beyond::bit_cast<const uint32_t*>(index_buffer.data()),
+        beyond::bit_cast<const uint32_t*>(index_buffer.data() +
+                                          index_buffer.size())};
+
+    using beyond::float_constants::pi;
+
+    const auto view = beyond::look_at(beyond::Vec3{1.f, 0.8f, 3.f},
+                                      beyond::Vec3{0.f, 0.f, 0.f},
+                                      beyond::Vec3{0.f, 1.f, 0.f});
+
+    const auto proj = beyond::perspective(
+        beyond::Radian(pi / 3.f),
+        static_cast<float>(width) / static_cast<float>(height), 0.1f, 100.f);
+
+    const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
+
+    constexpr const char* diffuse_texture_filename =
+        "assets/textures/african_head_diffuse.tga";
+
+    float* diffuse_texture_ = nullptr;
+    int diffuse_texture_width_ = 0;
+    int diffuse_texture_height_ = 0;
+    int diffuse_texture_channels_ = 0;
+    diffuse_texture_ =
+        stbi_loadf(diffuse_texture_filename, &diffuse_texture_width_,
+                   &diffuse_texture_height_, &diffuse_texture_channels_, 0);
+
+    for (std::size_t i = 0; i < indices.size(); i += 3) {
+      const std::array triangle_indices{indices[i], indices[i + 1],
+                                        indices[i + 2]};
+
+      std::array<beyond::Point3, 3> world_coords;
+      std::array<beyond::Point3, 3> screen_coords;
+      std::array<beyond::Vec2, 3> uvs;
+      for (std::size_t j = 0; j < 3; ++j) {
+        world_coords[j] = *beyond::bit_cast<beyond::Point3*>(
+            &vertices[triangle_indices[j]].pos);
+
+        const beyond::Vec4 normalized_coord =
+            proj * view * beyond::Vec4{world_coords[j], 1};
+        screen_coords[j] =
+            normalized_to_screen(normalized_coord.xyz / normalized_coord.w);
+        uvs[j] = *beyond::bit_cast<beyond::Vec2*>(
+            &vertices[triangle_indices[j]].texcoord);
+      }
+
+      const auto normal =
+          beyond::normalize(beyond::cross(world_coords[1] - world_coords[0],
+                                          world_coords[2] - world_coords[1]));
+      float intensity = beyond::dot(normal, light_dir);
+      intensity = std::min(intensity, 1.f);
+      triangle(screen_coords, uvs, depth_buffer, image, diffuse_texture_,
+               diffuse_texture_width_, diffuse_texture_height_,
+               diffuse_texture_channels_, RGB(intensity, intensity, intensity));
+    }
+  }
 };
 
-auto create_device() -> Device*
+[[nodiscard]] auto Device::create() -> std::unique_ptr<Device>
 {
-  auto* device = new Device{};
-  device->buffers.emplace_back(); // Reserve 0 as dummy index
-  return device;
+  return std::make_unique<CPUDevice>();
 }
 
-void destroy_device(Device* device)
-{
-  delete device;
-}
-
-auto create_buffer(Device& device, BufferDesc desc) -> Buffer
-{
-  device.buffers.emplace_back(desc.data.begin(), desc.data.end());
-  return Buffer{.id = device.buffers.size() - 1};
-}
-
-void destroy_buffer(Device& device, Buffer buffer)
-{
-  device.buffers[buffer.id].clear();
-}
-
-void bind_vertex_buffer(Device& device, Buffer vertex_buffer)
-{
-  device.current_vertex_buffer_index = vertex_buffer.id;
-}
-void bind_index_buffer(Device& device, Buffer index_buffer)
-{
-  device.current_index_buffer_index = index_buffer.id;
-}
-
-void draw_indexed(Device& device, Image& image, std::vector<float> depth_buffer)
-{
-  const auto& vertex_buffer =
-      device.buffers[device.current_vertex_buffer_index];
-  const auto& index_buffer = device.buffers[device.current_index_buffer_index];
-
-  const std::span<const Vertex> vertices{
-      beyond::bit_cast<const Vertex*>(vertex_buffer.data()),
-      beyond::bit_cast<const Vertex*>(vertex_buffer.data() +
-                                      vertex_buffer.size())};
-  const std::span<const uint32_t> indices{
-      beyond::bit_cast<const uint32_t*>(index_buffer.data()),
-      beyond::bit_cast<const uint32_t*>(index_buffer.data() +
-                                        index_buffer.size())};
-
-  using beyond::float_constants::pi;
-
-  const auto view =
-      beyond::look_at(beyond::Vec3{1.f, 0.8f, 3.f}, beyond::Vec3{0.f, 0.f, 0.f},
-                      beyond::Vec3{0.f, 1.f, 0.f});
-
-  const auto proj = beyond::perspective(
-      beyond::Radian(pi / 3.f),
-      static_cast<float>(width) / static_cast<float>(height), 0.1f, 100.f);
-
-  const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
-
-  constexpr const char* diffuse_texture_filename =
-      "assets/textures/african_head_diffuse.tga";
-
-  float* diffuse_texture_ = nullptr;
-  int diffuse_texture_width_ = 0;
-  int diffuse_texture_height_ = 0;
-  int diffuse_texture_channels_ = 0;
-  diffuse_texture_ =
-      stbi_loadf(diffuse_texture_filename, &diffuse_texture_width_,
-                 &diffuse_texture_height_, &diffuse_texture_channels_, 0);
-
-  for (std::size_t i = 0; i < indices.size(); i += 3) {
-    const std::array triangle_indices{indices[i], indices[i + 1],
-                                      indices[i + 2]};
-
-    std::array<beyond::Point3, 3> world_coords;
-    std::array<beyond::Point3, 3> screen_coords;
-    std::array<beyond::Vec2, 3> uvs;
-    for (std::size_t j = 0; j < 3; ++j) {
-      world_coords[j] = *beyond::bit_cast<beyond::Point3*>(
-          &vertices[triangle_indices[j]].pos);
-
-      const beyond::Vec4 normalized_coord =
-          proj * view * beyond::Vec4{world_coords[j], 1};
-      screen_coords[j] =
-          normalized_to_screen(normalized_coord.xyz / normalized_coord.w);
-      uvs[j] = *beyond::bit_cast<beyond::Vec2*>(
-          &vertices[triangle_indices[j]].texcoord);
-    }
-
-    const auto normal = beyond::normalize(beyond::cross(
-        world_coords[1] - world_coords[0], world_coords[2] - world_coords[1]));
-    float intensity = beyond::dot(normal, light_dir);
-    intensity = std::min(intensity, 1.f);
-    triangle(screen_coords, uvs, depth_buffer, image, diffuse_texture_,
-             diffuse_texture_width_, diffuse_texture_height_,
-             diffuse_texture_channels_, RGB(intensity, intensity, intensity));
-  }
-}
 } // namespace yasr

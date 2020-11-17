@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "yasr.hpp"
+#include "yasr_raii.hpp"
 
 #include <beyond/math/function.hpp>
 #include <beyond/utils/bit_cast.hpp>
@@ -101,25 +102,23 @@ App::App()
       indices.push_back(indices.size());
     }
   }
-  auto* device = yasr::create_device();
-  auto vertex_buffer = yasr::create_buffer(
+
+  auto device = yasr::Device::create();
+
+  auto vertex_buffer = yasr::create_unique_buffer(
       *device,
       yasr::BufferDesc{
           .data = std::span(beyond::bit_cast<std::byte*>(vertices.data()),
                             vertices.size() * sizeof(Vertex))});
-  auto index_buffer = yasr::create_buffer(
+  auto index_buffer = yasr::create_unique_buffer(
       *device,
       yasr::BufferDesc{
           .data = std::span(beyond::bit_cast<std::byte*>(indices.data()),
                             indices.size() * sizeof(uint32_t))});
 
-  yasr::bind_vertex_buffer(*device, vertex_buffer);
-  yasr::bind_index_buffer(*device, index_buffer);
-  yasr::draw_indexed(*device, image_, depth_buffer_);
-
-  yasr::destroy_buffer(*device, index_buffer);
-  yasr::destroy_buffer(*device, vertex_buffer);
-  yasr::destroy_device(device);
+  device->bind_vertex_buffer(vertex_buffer);
+  device->bind_index_buffer(index_buffer);
+  device->draw_indexed(image_, depth_buffer_);
 }
 
 App::~App()

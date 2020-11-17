@@ -1,9 +1,10 @@
-#ifndef YASR
-#define YASR
+#ifndef YASR_HPP
+#define YASR_HPP
 
 #include "image.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <span>
 
 #include <beyond/math/point.hpp>
@@ -28,22 +29,31 @@ namespace yasr {
   };
 
 struct Device;
-DEFINE_HANDLE(Buffer)
 
-[[nodiscard]] auto create_device() -> Device*;
-void destroy_device(Device* device);
+DEFINE_HANDLE(Buffer)
 
 struct BufferDesc {
   std::span<const std::byte> data;
 };
-[[nodiscard]] auto create_buffer(Device& device, BufferDesc desc) -> Buffer;
-void destroy_buffer(Device& device, Buffer buffer);
 
-void bind_vertex_buffer(Device& device, Buffer vertex_buffer);
-void bind_index_buffer(Device& device, Buffer index_buffer);
-void draw_indexed(Device& device, Image& image,
-                  std::vector<float> depth_buffer);
+struct Device {
+  [[nodiscard]] static auto create() -> std::unique_ptr<Device>;
+
+  [[nodiscard]] virtual auto create_buffer(BufferDesc desc) -> Buffer = 0;
+  virtual void destroy_buffer(Buffer buffer) = 0;
+
+  virtual void bind_vertex_buffer(Buffer vertex_buffer) = 0;
+  virtual void bind_index_buffer(Buffer index_buffer) = 0;
+  virtual void draw_indexed(Image& image, std::vector<float> depth_buffer) = 0;
+
+  Device() = default;
+  virtual ~Device() = default;
+  Device(const Device&) = delete;
+  auto operator=(const Device&) & -> Device& = delete;
+  Device(Device&&) noexcept = default;
+  auto operator=(Device&&) & noexcept -> Device& = default;
+};
 
 } // namespace yasr
 
-#endif // YASR
+#endif // YASR_HPP

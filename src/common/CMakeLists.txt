@@ -1,5 +1,5 @@
 add_library(common
-        file_util.cpp file_util.hpp app.cpp app.hpp image.hpp color.cpp color.hpp model.cpp model.hpp stb_image_impl.cpp yasr.cpp yasr.hpp)
+        file_util.cpp file_util.hpp app.cpp app.hpp image.hpp color.cpp color.hpp model.cpp model.hpp stb_image_impl.cpp yasr.cpp yasr.hpp yasr_raii.hpp)
 target_link_libraries(common
         PUBLIC
         CONAN_PKG::stb
