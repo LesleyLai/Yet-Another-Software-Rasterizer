@@ -4,6 +4,7 @@
 
 #include <beyond/math/transform.hpp>
 #include <beyond/math/vector.hpp>
+#include <beyond/utils/conversion.hpp>
 
 #include <stb_image.h>
 
@@ -12,6 +13,9 @@ namespace {
 [[maybe_unused]] auto line(beyond::IPoint2 p0, beyond::IPoint2 p1, Image& image,
                            const RGB& color) -> void
 {
+  using beyond::to_f32;
+  using beyond::to_i32;
+
   bool steep = false;
   if (std::abs(p0.x - p1.x) <
       std::abs(p0.y - p1.y)) { // if the line is steep, we transpose the image
@@ -23,9 +27,8 @@ namespace {
     std::swap(p0, p1);
   }
   for (int x = p0.x; x <= p1.x; x++) {
-    const auto t =
-        static_cast<float>(x - p0.x) / static_cast<float>(p1.x - p0.x);
-    const auto y = static_cast<int>(std::round(p0.y * (1.f - t) + p1.y * t));
+    const auto t = to_f32(x - p0.x) / to_f32(p1.x - p0.x);
+    const auto y = to_i32(std::round(p0.y * (1.f - t) + p1.y * t));
     if (steep) {
       if (y >= 0 && y < image.width() && x >= 0 && x < image.height()) {
         image.unsafe_at(y, x) = color; // if transposed, de−transpose
@@ -70,19 +73,25 @@ void triangle(const std::array<beyond::Point3, 3>& pts,
               int diffuse_texture_height, int diffuse_texture_channels,
               const RGB color)
 {
+  using beyond::to_f32;
+  using beyond::to_i32;
+
+  const float diffuse_texture_width_f = to_f32(diffuse_texture_width);
+  const float diffuse_texture_height_f = to_f32(diffuse_texture_height);
+
   const beyond::IVec2 bbox_upper_bound{image.width() - 1, image.height() - 1};
   beyond::IVec2 bboxmin{bbox_upper_bound};
   beyond::IVec2 bboxmax{0, 0};
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 2; ++j) {
-      bboxmin[j] = std::clamp(bboxmin[j], 0, static_cast<int>(pts[i][j]));
-      bboxmax[j] = std::clamp(bboxmax[j], static_cast<int>(pts[i][j]),
-                              bbox_upper_bound[j]);
+      bboxmin[j] = std::clamp(bboxmin[j], 0, to_i32(pts[i][j]));
+      bboxmax[j] =
+          std::clamp(bboxmax[j], to_i32(pts[i][j]), bbox_upper_bound[j]);
     }
   }
 
   const auto to_int_xy = [](beyond::Point3 pt) {
-    return beyond::IPoint2{static_cast<int>(pt.x), static_cast<int>(pt.y)};
+    return beyond::IPoint2{to_i32(pt.x), to_i32(pt.y)};
   };
 
   for (int x = bboxmin.x; x < bboxmax.x; ++x) {
@@ -107,9 +116,9 @@ void triangle(const std::array<beyond::Point3, 3>& pts,
 
       if (depth_buffer[index] < z) {
         depth_buffer[index] = z;
-        const int texture_x = std::max(u * diffuse_texture_width, 0.f);
-        const int texture_y =
-            diffuse_texture_height - std::max(v * diffuse_texture_height, 0.f);
+        const int texture_x = std::max(u * diffuse_texture_width_f, 0.f);
+        const int texture_y = diffuse_texture_height_f -
+                              std::max(v * diffuse_texture_height_f, 0.f);
         const float* target_pixels =
             diffuse_texture + (texture_y * diffuse_texture_width + texture_x) *
                                   diffuse_texture_channels;
@@ -163,17 +172,18 @@ struct CPUDevice : Device {
 
   void draw_indexed(Image& image, std::vector<float> depth_buffer) override
   {
+    using beyond::bit_cast;
+    using beyond::to_f32;
+
     const auto& vertex_buffer = buffers[current_vertex_buffer_index];
     const auto& index_buffer = buffers[current_index_buffer_index];
 
     const std::span<const Vertex> vertices{
-        beyond::bit_cast<const Vertex*>(vertex_buffer.data()),
-        beyond::bit_cast<const Vertex*>(vertex_buffer.data() +
-                                        vertex_buffer.size())};
+        bit_cast<const Vertex*>(vertex_buffer.data()),
+        bit_cast<const Vertex*>(vertex_buffer.data() + vertex_buffer.size())};
     const std::span<const uint32_t> indices{
-        beyond::bit_cast<const uint32_t*>(index_buffer.data()),
-        beyond::bit_cast<const uint32_t*>(index_buffer.data() +
-                                          index_buffer.size())};
+        bit_cast<const uint32_t*>(index_buffer.data()),
+        bit_cast<const uint32_t*>(index_buffer.data() + index_buffer.size())};
 
     using beyond::float_constants::pi;
 
@@ -182,8 +192,7 @@ struct CPUDevice : Device {
                                       beyond::Vec3{0.f, 1.f, 0.f});
 
     const auto proj = beyond::perspective(
-        beyond::Radian(pi / 3.f),
-        static_cast<float>(width) / static_cast<float>(height), 0.1f, 100.f);
+        beyond::Radian(pi / 3.f), to_f32(width) / to_f32(height), 0.1f, 100.f);
 
     const auto light_dir = beyond::normalize(beyond::Vec3{0, 1, 5});
 
@@ -206,15 +215,15 @@ struct CPUDevice : Device {
       std::array<beyond::Point3, 3> screen_coords;
       std::array<beyond::Vec2, 3> uvs;
       for (std::size_t j = 0; j < 3; ++j) {
-        world_coords[j] = *beyond::bit_cast<beyond::Point3*>(
-            &vertices[triangle_indices[j]].pos);
+        world_coords[j] =
+            *bit_cast<beyond::Point3*>(&vertices[triangle_indices[j]].pos);
 
         const beyond::Vec4 normalized_coord =
             proj * view * beyond::Vec4{world_coords[j], 1};
         screen_coords[j] =
             normalized_to_screen(normalized_coord.xyz / normalized_coord.w);
-        uvs[j] = *beyond::bit_cast<beyond::Vec2*>(
-            &vertices[triangle_indices[j]].texcoord);
+        uvs[j] =
+            *bit_cast<beyond::Vec2*>(&vertices[triangle_indices[j]].texcoord);
       }
 
       const auto normal =
