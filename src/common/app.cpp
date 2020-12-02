@@ -12,8 +12,6 @@
 
 namespace {
 
-using beyond::float_constants::pi;
-
 constexpr auto rgb_to_uint32(const RGB& c) noexcept -> uint32_t
 {
   const auto r = static_cast<uint8_t>(c.r * 255.99f);
@@ -151,9 +149,7 @@ auto App::handle_input() -> void
   while (SDL_PollEvent(&sdl_event) != 0) {
     switch (sdl_event.type) {
     case SDL_KEYDOWN:
-      if (sdl_event.key.keysym.sym == SDLK_ESCAPE) {
-        should_close_ = true;
-      }
+      if (sdl_event.key.keysym.sym == SDLK_ESCAPE) { should_close_ = true; }
       break;
     case SDL_QUIT:
       should_close_ = true;
