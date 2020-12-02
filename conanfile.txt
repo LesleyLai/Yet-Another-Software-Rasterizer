@@ -6,6 +6,7 @@ sdl2/2.0.9@bincrafters/stable
 sdl2_image/2.0.5@bincrafters/stable
 stb/20180214@conan/stable
 tinyobjloader/1.0.6
+backward-cpp/1.5
 
 [build_requires]
 Catch2/2.11.1@catchorg/stable
